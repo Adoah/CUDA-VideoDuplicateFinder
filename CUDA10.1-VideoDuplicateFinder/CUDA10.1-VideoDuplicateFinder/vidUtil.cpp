@@ -77,7 +77,7 @@ int createFrames()
 
         sprintf(filename, "filename%.3d.jpg", n++); //this is just to manage the filenames
         imwrite(filename, frame); //writes the frame to image
-        cout << "Saved " << filename << endl; //says that it was saved
+        //cout << "Saved " << filename << endl; //says that it was saved
 
 
         switch (key) {
@@ -154,7 +154,7 @@ std::vector<cv::Mat, std::allocator<cv::Mat>> createFramesInBounds(string videoN
 
         sprintf(filename, "cappedFrame/split%d.frame%.3d.jpg", splitNum, n); //this is just to manage the filenames
         //imwrite(filename, frame); //writes the frame to image
-        cout << "Saved " << filename << endl; //says that it was saved
+        //cout << "Saved " << filename << endl; //says that it was saved
         writeLocation.at(n) = frame;
 
 

@@ -56,32 +56,81 @@ Scalar getMSSIM_CUDA_optimized( const Mat& i1, const Mat& i2, BufferMSSIM& b);
 
 int vectorBreaker(std::vector<std::vector<std::vector<cv::Mat, std::allocator<cv::Mat>>>> inSet)
 {
-    //yoink the first set of frames (source video)
-    std::vector<std::vector<cv::Mat, std::allocator<cv::Mat>>> sourceSplits = inSet.at(0);
-    inSet.erase(inSet.begin());
-    //get each single frame per set from this as a cv::Mat
-
-        //Create CUDA Streams Array
+    //Create CUDA Streams Array
     std::shared_ptr<std::vector<cv::cuda::Stream>> streamsArray = std::make_shared<std::vector<cv::cuda::Stream>>();
 
     //building streams (same amount of splits)
-    for (int i = 0; i < SPLIT_COUNT; i++)
+    for (int i = 0; i < 300; i++)
     {
         cv::cuda::Stream newStream;
         streamsArray->push_back(newStream);
     }
 
     //Create Pinned Memory (PAGE_LOCKED) arrays
-    std::shared_ptr<std::vector<cv::cuda::HostMem >> srcMemArray = std::make_shared<std::vector<cv::cuda::HostMem >>();
-    std::shared_ptr<std::vector<cv::cuda::HostMem >> dstMemArray = std::make_shared<std::vector<cv::cuda::HostMem >>();
+    std::shared_ptr<std::vector<cv::cuda::HostMem >> hostSrcArray = std::make_shared<std::vector<cv::cuda::HostMem >>();
+    //std::shared_ptr<std::vector<cv::cuda::HostMem >> hostDupeArray = std::make_shared<std::vector<cv::cuda::HostMem >>();
 
     //Create GpuMat arrays to use them on OpenCV CUDA Methods
     std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuSrcArray = std::make_shared<std::vector<cv::cuda::GpuMat>>();
-    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuDstArray = std::make_shared<std::vector<cv::cuda::GpuMat>>();
+    //std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuDupeArray = std::make_shared<std::vector<cv::cuda::GpuMat>>();
+
+    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuSrcBuf = std::make_shared<std::vector<cv::cuda::GpuMat>>();
+    //std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuDupeBuf = std::make_shared<std::vector<cv::cuda::GpuMat>>();
+
+    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuWriteBuf = std::make_shared<std::vector<cv::cuda::GpuMat>>();
+    std::shared_ptr< cv::cuda::GpuMat > gpuUnkBuf = std::make_shared<cv::cuda::GpuMat>();
 
     //Create Output array for CPU Mat
     std::shared_ptr<std::vector< double >> doubleOutArray = std::make_shared<std::vector<double>>();
 
+
+    //yoink the first set of frames (source video)
+    std::vector<std::vector<cv::Mat, std::allocator<cv::Mat>>> sourceSplits = inSet.at(0);
+    inSet.erase(inSet.begin());
+    //get each single frame per set from this as a cv::Mat
+
+    for (std::vector<std::vector<cv::Mat, std::allocator<cv::Mat>>>::iterator d2it = sourceSplits.begin(); d2it != sourceSplits.end(); ++d2it)
+    {
+        std::vector<cv::Mat, std::allocator<cv::Mat>> frameSet = *d2it;
+        for (std::vector<cv::Mat, std::allocator<cv::Mat>>::iterator d1it = frameSet.begin(); d1it != frameSet.end(); ++d1it)
+        {
+            hostSrcArray->push_back(cv::cuda::HostMem(*d1it, cv::cuda::HostMem::PAGE_LOCKED));
+            cv::cuda::GpuMat srcMat;
+            gpuSrcArray->push_back(srcMat);
+            cv::cuda::GpuMat bufMat;
+            gpuSrcBuf->push_back(bufMat);
+            cv::cuda::GpuMat writeBufMat;
+            gpuWriteBuf->push_back(writeBufMat);
+            cv::Mat sizeMat = *d1it;
+            int rows, cols;
+            cv::Size s = sizeMat.size();
+            rows = s.height;
+            cols = s.width;
+        }
+    }
+
+    cv::Mat sizeMat = (*hostSrcArray).front().createMatHeader();
+    int rows, cols;
+    cv::Size s = sizeMat.size();
+    rows = s.height;
+    cols = s.width;
+    cout << "img height is : " << rows << " and width is : " << cols << endl;
+
+    frameResize(hostSrcArray, gpuSrcArray, gpuWriteBuf, streamsArray);
+    //the resized stuff is now in the gpuSrcArray vector, so upload is not necessary
+    //gpuSrcBuf = NULL;
+
+    cv::Mat rsizeMat = (*hostSrcArray).front().createMatHeader();
+    cv::Size rs = rsizeMat.size();
+    rows = rs.height;
+    cols = rs.width;
+    cout << "host new img height is : " << rows << " and width is : " << cols << endl;
+
+    cv::cuda::GpuMat grsizeMat = (*gpuSrcArray).front();
+    cv::Size grs = grsizeMat.size();
+    rows = grs.height;
+    cols = grs.width;
+    cout << "gpu new img height is : " << rows << " and width is : " << cols << endl;
 
     for (std::vector<std::vector<std::vector<cv::Mat, std::allocator<cv::Mat>>>>::iterator d3it = inSet.begin(); d3it != inSet.end(); ++d3it)
     {
@@ -91,7 +140,10 @@ int vectorBreaker(std::vector<std::vector<std::vector<cv::Mat, std::allocator<cv
             //spin up thread now, load all things from following iterator into it, maybe spin up multiple threads?
             //or do shit with stream, I dunno
             int i = 0;
-            
+            std::shared_ptr<std::vector<cv::cuda::HostMem >> hostDupeArray = std::make_shared<std::vector<cv::cuda::HostMem >>();
+            std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuDupeArray = std::make_shared<std::vector<cv::cuda::GpuMat>>();
+            std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuDupeBuf = std::make_shared<std::vector<cv::cuda::GpuMat>>();
+
             std::vector<cv::Mat, std::allocator<cv::Mat>> frameSet = *d2it;
             for (std::vector<cv::Mat, std::allocator<cv::Mat>>::iterator d1it = frameSet.begin(); d1it != frameSet.end(); ++d1it)
             {
@@ -101,19 +153,144 @@ int vectorBreaker(std::vector<std::vector<std::vector<cv::Mat, std::allocator<cv
 
                 //loading the images into the source memory array, and loading them into page_locked memory
                 //needs to be page locked in order to be able to use the upload method asynchronously
-                srcMemArray->push_back(cv::cuda::HostMem(*d1it, cv::cuda::HostMem::PAGE_LOCKED));
-                cv::cuda::GpuMat srcMat;
-                gpuSrcArray->push_back(srcMat);
+                hostDupeArray->push_back(cv::cuda::HostMem(*d1it, cv::cuda::HostMem::PAGE_LOCKED));
+                cv::cuda::GpuMat dupeMat;
+                gpuDupeArray->push_back(dupeMat);
+                cv::cuda::GpuMat bufMat;
+                gpuDupeBuf->push_back(bufMat);
+                //cv::cuda::GpuMat writeBufMat;
+                //gpuWriteBuf->push_back(writeBufMat); //not necessary anymore because the gpuwritebuf has already been populated
+                //cv::cuda::GpuMat unkBufMat;
+                //gpuUnkBuf->push_back(unkBufMat);
                 double output;
                 doubleOutArray->push_back(output);
+
+                cv::Mat sizeMat = *d1it;
+                int rows, cols;
+                cv::Size s = sizeMat.size();
+                rows = s.height;
+                cols = s.width;
+                cout << "img height is : " << rows << " and width is : " << cols << endl;
+
             }
             i++;
+
+            //do frameresize 
+            frameResize(hostDupeArray, gpuDupeArray, gpuDupeBuf, streamsArray);
+            //run pnsr
+            runPNSRcustom(hostSrcArray, hostDupeArray, gpuSrcArray, gpuDupeArray, gpuSrcBuf, gpuDupeBuf, gpuWriteBuf, gpuUnkBuf, doubleOutArray, streamsArray);
 
             //dunno if it's good practice to load shit into stream object and recall memory while computation is happening or not?
             //I doubt it though
         }
     }
+
+    frameResize(hostSrcArray, gpuSrcArray, gpuSrcBuf, streamsArray);
+
+    
+
     return 1;
+}
+
+int frameResize(std::shared_ptr<std::vector< cv::cuda::HostMem >> hostSrcArray,  //cpu mat on host memory
+                std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuSrcArray,    //gpu mat on gpu memory
+                std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuBuf,    //gpu mat on gpu memory
+                std::shared_ptr<std::vector< cv::cuda::Stream >> streamsArray)
+{
+
+    cv::Size rsize(640, 360); //target size (360p)
+
+    int streamsSize = streamsArray->size();
+
+    for (int i = 0; i < gpuSrcArray->size(); i++)
+    {
+        cout << "streamsarraypos : " << i % streamsSize << endl;
+        (*gpuSrcArray)[i].upload((*hostSrcArray)[i], (*streamsArray)[i % streamsSize]); //write to gpu
+        cv::cuda::resize((*gpuSrcArray)[i], (*gpuBuf)[i], rsize, 0, 0, cv::INTER_AREA, (*streamsArray)[i % streamsSize]); //resize image
+        (*gpuBuf)[i].download((*hostSrcArray)[i], (*streamsArray)[i % streamsSize]); //write to host
+        //(*gpuSrcResized)[i].download((*gpuSrcArray)[i], (*streamsArray)[i % streamsSize]); //write to gpuMem
+        //(*gpuWriteBuf)[i].download((*hostDestArray)[i], (*streamsArray)[i % streamsSize]); //write to host
+        //(*resizedOutput)[i] = (*hostDestArray)[i].createMatHeader();
+    }
+
+    for (int i = 0; i < streamsSize; i++)
+    {
+        (*streamsArray)[i].waitForCompletion();
+    }
+
+    (*gpuSrcArray) = (*gpuBuf); //trying to put the new resized images into original source ///this works
+
+    return 1;
+}
+
+double runPNSRcustom(std::shared_ptr<std::vector< cv::cuda::HostMem >> hostSrcArray, //cpu mat on host memory
+                    std::shared_ptr<std::vector< cv::cuda::HostMem >> hostDupeArray, //cpu mat on host memory
+                    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuSrcArray,    //gpu mat on gpu memory
+                    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuDupeArray,   //gpu mat on gpu memory
+                    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuSrcBuf,      //gpu mat on gpu memory
+                    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuDupeBuf,     //gpu mat on gpu memory
+                    std::shared_ptr<std::vector< cv::cuda::GpuMat >> gpuWriteBuf,    //gpu mat on gpu memory
+                    std::shared_ptr< cv::cuda::GpuMat > gpuUnkBuf,                   //gpu mat on gpu memory
+                    std::shared_ptr<std::vector< double >> outArray,
+                    std::shared_ptr<std::vector< cv::cuda::Stream >> streamsArray)
+{
+    cout << "hostsrcarraysize is : " << hostSrcArray->size() << " and hostdupearraysize is : " << hostDupeArray->size() << endl;
+    float modfactor = ((hostSrcArray->size()) / (hostDupeArray->size())); //shrink
+    double undoModFactor = hostDupeArray->size() / hostSrcArray->size(); //enlarge
+
+    cout << "modfactor is: " << modfactor << " and undomodfactor is: " << undoModFactor << endl;
+    cout << hostSrcArray->size() << " hostSrcArray.size()" << endl;
+    for (int hostDupeImgIdx = 0; hostDupeImgIdx < hostDupeArray->size(); hostDupeImgIdx++)
+    {
+        //(*gpuDupeArray)[hostDupeImgIdx].upload((*hostDupeArray)[hostDupeImgIdx], (*streamsArray)[hostDupeImgIdx / undoModFactor]);
+        (*gpuDupeArray)[hostDupeImgIdx].convertTo((*gpuDupeBuf)[hostDupeImgIdx], CV_32F, (*streamsArray)[hostDupeImgIdx % streamsArray->size()]); //this is erroring on round 205
+        cout << "gpu dupe array is loaded, so is sources " << hostDupeImgIdx << endl;
+    }
+    for (int hostSrcImgIdx = 0; hostSrcImgIdx < hostSrcArray->size(); hostSrcImgIdx++)
+    {
+        //(*gpuSrcArray)[hostSrcImgIdx].upload((*hostSrcArray)[hostSrcImgIdx], (*streamsArray)[hostSrcImgIdx]);
+        (*gpuSrcArray)[hostSrcImgIdx].convertTo((*gpuSrcBuf)[hostSrcImgIdx], CV_32F, (*streamsArray)[hostSrcImgIdx]); //runs out of gpu memory.
+        cout << "gpu dupe array is loaded, so is sources " << hostSrcImgIdx << endl;
+    }
+    cout << "gpusrcarray is loaded, so are the streams" << endl;
+    //by now upload and conversion has been "done"
+
+    cout << "--------------------------------------------------------------------------------------------------------------------------------------------" << endl;
+    cout << "gpusrcarray height is : " << (*gpuSrcArray).front().size().height << "gpusrcarray width is : " << (*gpuSrcArray).front().size().width << endl;
+    cout << "gpudupearray height is : " << (*gpuDupeArray).front().size().height << "gpudupearray width is : " << (*gpuDupeArray).front().size().width << endl;
+  
+
+    for (int hostDupeImgIdx = 0; hostDupeImgIdx < hostDupeArray->size(); hostDupeImgIdx++)
+    {
+        //cv::cuda::GpuMat mat1 = (*gpuSrcBuf)[hostDupeImgIdx % streamsArray->size()].reshape(1);
+        //cv::cuda::GpuMat mat2 = (*gpuDupeBuf)[hostDupeImgIdx % streamsArray->size()].reshape(1);
+        cuda::absdiff((*gpuSrcBuf)[hostDupeImgIdx % streamsArray->size()].reshape(1), (*gpuDupeBuf)[hostDupeImgIdx % streamsArray->size()].reshape(1), (*gpuWriteBuf)[hostDupeImgIdx], (*streamsArray)[hostDupeImgIdx % streamsArray->size()]); //some sort of error here
+        cuda::multiply((*gpuWriteBuf)[hostDupeImgIdx], (*gpuWriteBuf)[hostDupeImgIdx], (*gpuWriteBuf)[hostDupeImgIdx]);
+
+        double sse = cuda::sum((*gpuWriteBuf)[hostDupeImgIdx], (*gpuUnkBuf))[0]; //gpuUnkBuf used to be a vector, changed to single thing to try and solve mem issues
+
+        if (sse <= 1e-10)
+        {
+            cout << "PSNR 0'd out" << endl;
+            return 0;
+        }
+        else
+        {
+            cv::Mat tmpMat;
+            (*gpuSrcArray)[hostDupeImgIdx / undoModFactor].download(tmpMat);
+            double mse = sse / (double)((tmpMat.channels()) * (tmpMat.total())); //unsure about this statement, had to botch it together a bit
+            double psnr = 10.0 * log10((255 * 255) / mse);
+            cout << "PSNR is : " << psnr << endl;
+            return psnr;
+        }
+    }
+
+    for (int i = 0; i < streamsArray->size(); i++)
+    {
+        (*streamsArray)[i].waitForCompletion();
+    }
+
+    return .1;
 }
 
 void cudaCaller()

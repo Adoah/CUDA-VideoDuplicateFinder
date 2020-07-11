@@ -27,6 +27,6 @@ int main(int argc, char** argv)
 	cout << current_working_dir << endl;
 	cout << "finding similar videos!" << endl;
 	std::vector<std::vector<std::vector<cv::Mat, std::allocator<cv::Mat>>>> builtFrames = findSimilarVideos("testVids/iglesias_test_vid_orig.mp4", "./testvids/", .05);
-	//CUDAManager(builtFrames);
+	vectorBreaker(builtFrames);
 	return 0;
 }
